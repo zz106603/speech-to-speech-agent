@@ -66,7 +66,7 @@ private data class CreateRealtimeClientSecretRequest(
 
 private data class RealtimeSessionConfig(
 	val type: String = "realtime",
-	val model: String = "gpt-realtime-2",
+	val model: String = "gpt-realtime-mini",
 	val audio: RealtimeAudioConfig = RealtimeAudioConfig(),
 )
 
