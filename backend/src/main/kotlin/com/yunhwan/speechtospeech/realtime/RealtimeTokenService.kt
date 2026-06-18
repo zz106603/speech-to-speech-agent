@@ -67,7 +67,46 @@ private data class CreateRealtimeClientSecretRequest(
 private data class RealtimeSessionConfig(
 	val type: String = "realtime",
 	val model: String = "gpt-realtime-mini",
+	val instructions: String = REALTIME_INSTRUCTIONS,
+	val tools: List<RealtimeToolConfig> = listOf(RealtimeToolConfig()),
+	val tool_choice: String = "auto",
 	val audio: RealtimeAudioConfig = RealtimeAudioConfig(),
+)
+
+private const val REALTIME_INSTRUCTIONS = """
+너는 "루코"라는 이름의 루틴 코치다.
+사용자가 해야 할 일, 습관, 목표를 정리하도록 돕는다.
+친근하고 자연스럽게, 짧고 간결하게 답한다.
+가벼운 잔소리를 섞을 수 있지만 사용자를 비난하지 않는다.
+사용자가 저장 의도를 명확하게 표현했을 때만 save_task 도구를 호출한다.
+저장 후에는 짧게 격려한다.
+한 번에 너무 많은 질문을 하지 않는다.
+답변은 가능한 한 3문장 이내로 유지한다.
+개인정보, 주소, 전화번호, 계좌번호 등을 묻지 않는다.
+의료, 법률, 금융 전문가처럼 행동하지 않는다.
+"""
+
+private data class RealtimeToolConfig(
+	val type: String = "function",
+	val name: String = "save_task",
+	val description: String = "사용자가 저장하고 싶은 할 일이나 루틴을 앱 화면의 할 일 목록에 추가한다.",
+	val parameters: RealtimeToolParameters = RealtimeToolParameters(),
+)
+
+private data class RealtimeToolParameters(
+	val type: String = "object",
+	val properties: Map<String, RealtimeToolProperty> = mapOf(
+		"task" to RealtimeToolProperty(
+			type = "string",
+			description = "저장할 할 일이나 루틴",
+		),
+	),
+	val required: List<String> = listOf("task"),
+)
+
+private data class RealtimeToolProperty(
+	val type: String,
+	val description: String,
 )
 
 private data class RealtimeAudioConfig(

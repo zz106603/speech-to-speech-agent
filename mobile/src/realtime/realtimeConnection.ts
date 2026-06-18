@@ -19,7 +19,24 @@ export type RealtimeConnection = {
 export type RealtimeConnectionCallbacks = {
   onConnectionStateChange?: (state: RealtimePeerConnectionState) => void;
   onDataChannelStateChange?: (state: string) => void;
+  onDataChannelMessage?: (
+    event: RealtimeServerEvent,
+    dataChannel: RealtimeDataChannel,
+  ) => void;
   onRemoteStream?: (stream: MediaStream) => void;
+};
+
+export type RealtimeServerEvent = {
+  type?: string;
+  item?: {
+    type?: string;
+    name?: string;
+    call_id?: string;
+    arguments?: string;
+  };
+  name?: string;
+  call_id?: string;
+  arguments?: string;
 };
 
 const OPENAI_REALTIME_WEBRTC_URL =
@@ -43,6 +60,12 @@ export function createRealtimeDataChannel(
   });
   addWebRTCEventListener(dataChannel, 'error', () => {
     callbacks.onDataChannelStateChange?.(dataChannel.readyState);
+  });
+  addWebRTCEventListener(dataChannel, 'message', event => {
+    const message = parseRealtimeMessage(event.data);
+    if (message) {
+      callbacks.onDataChannelMessage?.(message, dataChannel);
+    }
   });
 
   return dataChannel;
@@ -132,6 +155,15 @@ export function closeRealtimeConnection(
   peerConnection.close();
 }
 
+export function sendRealtimeEvent(
+  dataChannel: RealtimeDataChannel,
+  event: Record<string, unknown>,
+) {
+  if (dataChannel.readyState === 'open') {
+    dataChannel.send(JSON.stringify(event));
+  }
+}
+
 async function requestOpenAIRealtimeAnswer(
   ephemeralToken: string,
   offerSdp?: string,
@@ -163,4 +195,16 @@ function addWebRTCEventListener(
 ) {
   (target as { addEventListener: (name: string, handler: unknown) => void })
     .addEventListener(eventName, listener);
+}
+
+function parseRealtimeMessage(data: unknown): RealtimeServerEvent | null {
+  if (typeof data !== 'string') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(data) as RealtimeServerEvent;
+  } catch {
+    return null;
+  }
 }
