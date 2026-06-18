@@ -1,0 +1,85 @@
+# =========================
+# React Native
+# =========================
+
+mobile/node_modules/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+
+mobile/ios/build/
+mobile/ios/Pods/
+
+mobile/.expo/
+mobile/.bundle/
+
+# Metro
+mobile/.metro-health-check*
+
+# =========================
+# Spring Boot / Gradle
+# =========================
+
+backend/.gradle/
+backend/build/
+backend/out/
+
+# IntelliJ
+backend/.idea/
+
+# =========================
+# IDE
+# =========================
+
+.idea/
+.vscode/
+
+*.iml
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+
+*.log
+
+# =========================
+# Env
+# =========================
+
+.env
+.env.*
+
+# 단, 예시 파일은 포함
+!.env.example
+
+# =========================
+# Java
+# =========================
+
+*.class
+
+# =========================
+# Kotlin
+# =========================
+
+.kotlin/
+
+# =========================
+# React Native local
+# =========================
+
+mobile/android/local.properties
+
+# =========================
+# Keystore
+# =========================
+
+*.jks
+*.keystore
