@@ -15,6 +15,10 @@ import {
 } from 'react-native-safe-area-context';
 import { maskToken, requestRealtimeToken } from './src/api/realtimeTokenApi';
 import {
+  requestSessionSummary,
+  type SessionSummary,
+} from './src/api/sessionSummaryApi';
+import {
   connectToOpenAIRealtime,
   sendRealtimeEvent,
   type RealtimeConnection,
@@ -22,6 +26,10 @@ import {
 } from './src/realtime/realtimeConnection';
 
 type RequestStatus = 'idle' | 'loading' | 'success' | 'error';
+type ConversationMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
 type ConnectionStatus =
   | 'idle'
   | 'requesting-permission'
@@ -105,7 +113,15 @@ function AppContent() {
   const [hasRemoteAudio, setHasRemoteAudio] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [tasks, setTasks] = useState<string[]>([]);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [sessionSummary, setSessionSummary] =
+    useState<SessionSummary | null>(null);
   const handledToolCallsRef = useRef<Set<string>>(new Set());
+  const handledTranscriptItemsRef = useRef<Set<string>>(new Set());
+  const isEndingSessionRef = useRef(false);
+  const isRealtimeSessionConfiguredRef = useRef(false);
+  const tasksRef = useRef<string[]>([]);
+  const messagesRef = useRef<ConversationMessage[]>([]);
 
   useEffect(() => {
     return () => {
@@ -139,6 +155,15 @@ function AppContent() {
     setConnectionStatus('requesting-permission');
     setErrorMessage(null);
     setHasRemoteAudio(false);
+    setSessionSummary(null);
+    setTasks([]);
+    tasksRef.current = [];
+    setMessages([]);
+    messagesRef.current = [];
+    handledToolCallsRef.current.clear();
+    handledTranscriptItemsRef.current.clear();
+    isEndingSessionRef.current = false;
+    isRealtimeSessionConfiguredRef.current = false;
 
     try {
       const hasPermission = await requestMicrophonePermission();
@@ -170,16 +195,32 @@ function AppContent() {
             cleanupConnection();
           }
         },
-        onDataChannelStateChange: state => {
+        onDataChannelStateChange: (state, dataChannel) => {
           setDataChannelState(state);
+          if (state === 'open' && !isRealtimeSessionConfiguredRef.current) {
+            isRealtimeSessionConfiguredRef.current = true;
+            configureRealtimeResponseLoop(dataChannel);
+          }
         },
         onRemoteStream: stream => {
           setHasRemoteAudio(stream.getAudioTracks().length > 0);
         },
         onDataChannelMessage: (event, dataChannel) => {
-          handleRealtimeEvent(event, dataChannel, task => {
-            setTasks(currentTasks => [...currentTasks, task]);
-          });
+          handleRealtimeEvent(
+            event,
+            dataChannel,
+            task => {
+              const nextTasks = [...tasksRef.current, task];
+              tasksRef.current = nextTasks;
+              setTasks(nextTasks);
+            },
+            message => {
+              const nextMessages = [...messagesRef.current, message];
+              messagesRef.current = nextMessages;
+              setMessages(nextMessages);
+              return nextMessages;
+            },
+          );
         },
       });
 
@@ -197,6 +238,29 @@ function AppContent() {
   const handleStopConnection = () => {
     cleanupConnection();
     setConnectionStatus('disconnected');
+  };
+
+  const handleSessionEndIntent = async (
+    messagesForSummary: ConversationMessage[],
+  ) => {
+    if (isEndingSessionRef.current) {
+      return;
+    }
+
+    isEndingSessionRef.current = true;
+
+    try {
+      const summary = await requestSessionSummary(
+        messagesForSummary,
+        tasksRef.current,
+      );
+      setSessionSummary(summary);
+    } catch {
+      setErrorMessage('세션 요약을 생성하지 못했습니다.');
+    } finally {
+      cleanupConnection();
+      setConnectionStatus('disconnected');
+    }
   };
 
   const isConnecting =
@@ -285,6 +349,25 @@ function AppContent() {
           </Pressable>
         </View>
 
+        {sessionSummary ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>{sessionSummary.title}</Text>
+            <Text style={styles.summaryText}>{sessionSummary.summary}</Text>
+            <Text style={styles.summaryTaskTitle}>저장된 할 일</Text>
+            {sessionSummary.tasks.length === 0 ? (
+              <Text style={styles.emptyText}>저장된 할 일이 없습니다.</Text>
+            ) : (
+              <View style={styles.summaryTaskList}>
+                {sessionSummary.tasks.map((task, index) => (
+                  <Text key={`${task}-${index}`} style={styles.summaryTask}>
+                    {index + 1}. {task}
+                  </Text>
+                ))}
+              </View>
+            )}
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.label}>저장된 할 일</Text>
           {tasks.length === 0 ? (
@@ -300,6 +383,26 @@ function AppContent() {
             </View>
           )}
         </View>
+
+        <View style={styles.section}>
+          <Text style={styles.label}>대화 로그</Text>
+          {messages.length === 0 ? (
+            <Text style={styles.emptyText}>
+              아직 저장된 대화 로그가 없습니다.
+            </Text>
+          ) : (
+            <View style={styles.messageList}>
+              {messages.map((message, index) => (
+                <View key={`${message.role}-${index}`} style={styles.messageRow}>
+                  <Text style={styles.messageRole}>
+                    {message.role === 'user' ? '사용자' : '루코'}
+                  </Text>
+                  <Text style={styles.messageText}>{message.content}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </View>
     </ScrollView>
   );
@@ -308,7 +411,24 @@ function AppContent() {
     event: RealtimeServerEvent,
     dataChannel: RealtimeConnection['dataChannel'],
     onTaskSaved: (task: string) => void,
+    onMessageSaved: (message: ConversationMessage) => ConversationMessage[],
   ) {
+    const transcriptMessage = getTranscriptMessage(event);
+    if (transcriptMessage) {
+      const transcriptKey = `${transcriptMessage.role}:${transcriptMessage.itemId}`;
+      if (!handledTranscriptItemsRef.current.has(transcriptKey)) {
+        handledTranscriptItemsRef.current.add(transcriptKey);
+        const nextMessages = onMessageSaved({
+          role: transcriptMessage.role,
+          content: transcriptMessage.content,
+        });
+
+        if (isSessionEndIntent(transcriptMessage)) {
+          void handleSessionEndIntent(nextMessages);
+        }
+      }
+    }
+
     const functionCall = getSaveTaskFunctionCall(event);
     if (!functionCall) {
       return;
@@ -449,6 +569,62 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  summaryCard: {
+    backgroundColor: '#ffffff',
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 20,
+    padding: 16,
+  },
+  summaryTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  summaryText: {
+    color: '#374151',
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  summaryTaskTitle: {
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  summaryTaskList: {
+    gap: 4,
+  },
+  summaryTask: {
+    color: '#111827',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  messageList: {
+    gap: 8,
+  },
+  messageRow: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  messageRole: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  messageText: {
+    color: '#111827',
+    fontSize: 14,
+    lineHeight: 20,
+  },
   errorMessage: {
     color: '#b91c1c',
     fontSize: 14,
@@ -582,6 +758,83 @@ function parseSaveTask(argumentsJson: string): string | null {
   }
 
   return null;
+}
+
+function getTranscriptMessage(event: RealtimeServerEvent):
+  | {
+      itemId: string;
+      role: ConversationMessage['role'];
+      content: string;
+    }
+  | null {
+  if (
+    event.type === 'conversation.item.input_audio_transcription.completed' &&
+    event.item_id &&
+    event.transcript?.trim()
+  ) {
+    return {
+      itemId: event.item_id,
+      role: 'user',
+      content: event.transcript.trim(),
+    };
+  }
+
+  if (
+    event.type === 'response.output_audio_transcript.done' &&
+    event.item_id &&
+    event.transcript?.trim()
+  ) {
+    return {
+      itemId: event.item_id,
+      role: 'assistant',
+      content: event.transcript.trim(),
+    };
+  }
+
+  return null;
+}
+
+function isSessionEndIntent(message: {
+  role: ConversationMessage['role'];
+  content: string;
+}): boolean {
+  if (message.role !== 'user') {
+    return false;
+  }
+
+  const content = message.content.trim();
+  return (
+    content.includes('끝') ||
+    content.includes('그만') ||
+    content.includes('마무리')
+  );
+}
+
+function configureRealtimeResponseLoop(
+  dataChannel: RealtimeConnection['dataChannel'],
+) {
+  sendRealtimeEvent(dataChannel, {
+    type: 'session.update',
+    session: {
+      type: 'realtime',
+      audio: {
+        input: {
+          transcription: {
+            model: 'gpt-realtime-whisper',
+            language: 'ko',
+          },
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 500,
+            create_response: true,
+            interrupt_response: true,
+          },
+        },
+      },
+    },
+  });
 }
 
 export default App;

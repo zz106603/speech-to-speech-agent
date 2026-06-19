@@ -18,7 +18,10 @@ export type RealtimeConnection = {
 
 export type RealtimeConnectionCallbacks = {
   onConnectionStateChange?: (state: RealtimePeerConnectionState) => void;
-  onDataChannelStateChange?: (state: string) => void;
+  onDataChannelStateChange?: (
+    state: string,
+    dataChannel: RealtimeDataChannel,
+  ) => void;
   onDataChannelMessage?: (
     event: RealtimeServerEvent,
     dataChannel: RealtimeDataChannel,
@@ -28,6 +31,12 @@ export type RealtimeConnectionCallbacks = {
 
 export type RealtimeServerEvent = {
   type?: string;
+  item_id?: string;
+  transcript?: string;
+  delta?: string;
+  response_id?: string;
+  output_index?: number;
+  content_index?: number;
   item?: {
     type?: string;
     name?: string;
@@ -53,13 +62,13 @@ export function createRealtimeDataChannel(
   const dataChannel = peerConnection.createDataChannel('oai-events');
 
   addWebRTCEventListener(dataChannel, 'open', () => {
-    callbacks.onDataChannelStateChange?.(dataChannel.readyState);
+    callbacks.onDataChannelStateChange?.(dataChannel.readyState, dataChannel);
   });
   addWebRTCEventListener(dataChannel, 'close', () => {
-    callbacks.onDataChannelStateChange?.(dataChannel.readyState);
+    callbacks.onDataChannelStateChange?.(dataChannel.readyState, dataChannel);
   });
   addWebRTCEventListener(dataChannel, 'error', () => {
-    callbacks.onDataChannelStateChange?.(dataChannel.readyState);
+    callbacks.onDataChannelStateChange?.(dataChannel.readyState, dataChannel);
   });
   addWebRTCEventListener(dataChannel, 'message', event => {
     const message = parseRealtimeMessage(event.data);
@@ -125,7 +134,7 @@ export async function connectToOpenAIRealtime(
       }),
     );
   } catch (error) {
-    closeRealtimeConnection(peerConnection, localStream, dataChannel);
+    closeRealtimeConnection(peerConnection, localStream, dataChannel, remoteStream);
     throw error;
   }
 
@@ -134,7 +143,8 @@ export async function connectToOpenAIRealtime(
     dataChannel,
     localStream,
     remoteStream,
-    close: () => closeRealtimeConnection(peerConnection, localStream, dataChannel),
+    close: () =>
+      closeRealtimeConnection(peerConnection, localStream, dataChannel, remoteStream),
   };
 }
 
@@ -142,6 +152,7 @@ export function closeRealtimeConnection(
   peerConnection: RTCPeerConnection,
   localStream: MediaStream | null = null,
   dataChannel: RealtimeDataChannel | null = null,
+  remoteStream: MediaStream | null = null,
 ) {
   if (dataChannel?.readyState !== 'closed') {
     dataChannel?.close();
@@ -151,6 +162,11 @@ export function closeRealtimeConnection(
     track.stop();
   });
   localStream?.release();
+
+  remoteStream?.getTracks().forEach(track => {
+    track.stop();
+  });
+  remoteStream?.release();
 
   peerConnection.close();
 }

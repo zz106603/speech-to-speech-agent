@@ -9,6 +9,7 @@ import org.springframework.web.client.RestClient
 import org.springframework.web.client.RestClientException
 import org.springframework.web.client.RestClientResponseException
 import org.springframework.web.server.ResponseStatusException
+import org.slf4j.LoggerFactory
 
 @Service
 class RealtimeTokenService(
@@ -16,7 +17,7 @@ class RealtimeTokenService(
 	@Value("\${openai.api-key:}") private val openAiApiKey: String,
 ) {
 	private val restClient: RestClient = restClientBuilder
-		.baseUrl("https://api.openai.com")
+		.baseUrl(OPENAI_BASE_URL)
 		.build()
 
 	fun createToken(): String {
@@ -30,21 +31,36 @@ class RealtimeTokenService(
 
 		val response = try {
 			restClient.post()
-				.uri("/v1/realtime/client_secrets")
+				.uri(REALTIME_CLIENT_SECRETS_PATH)
 				.header(HttpHeaders.AUTHORIZATION, "Bearer $apiKey")
 				.contentType(MediaType.APPLICATION_JSON)
 				.body(CreateRealtimeClientSecretRequest())
 				.retrieve()
 				.body(OpenAiRealtimeClientSecretResponse::class.java)
-		} catch (_: RestClientResponseException) {
-			throw ResponseStatusException(
-				HttpStatus.BAD_GATEWAY,
-				"Failed to create Realtime token",
+		} catch (exception: RestClientResponseException) {
+			logger.error(
+				"OpenAI Realtime token request failed. url={}, status={}, body={}",
+				REALTIME_CLIENT_SECRETS_URL,
+				exception.statusCode.value(),
+				exception.responseBodyAsString,
+				exception,
 			)
-		} catch (_: RestClientException) {
 			throw ResponseStatusException(
 				HttpStatus.BAD_GATEWAY,
 				"Failed to create Realtime token",
+				exception,
+			)
+		} catch (exception: RestClientException) {
+			logger.error(
+				"OpenAI Realtime token request failed before receiving a response. url={}, error={}",
+				REALTIME_CLIENT_SECRETS_URL,
+				exception.message,
+				exception,
+			)
+			throw ResponseStatusException(
+				HttpStatus.BAD_GATEWAY,
+				"Failed to create Realtime token",
+				exception,
 			)
 		}
 
@@ -57,6 +73,13 @@ class RealtimeTokenService(
 		}
 
 		return token
+	}
+
+	private companion object {
+		private const val OPENAI_BASE_URL = "https://api.openai.com"
+		private const val REALTIME_CLIENT_SECRETS_PATH = "/v1/realtime/client_secrets"
+		private const val REALTIME_CLIENT_SECRETS_URL = OPENAI_BASE_URL + REALTIME_CLIENT_SECRETS_PATH
+		private val logger = LoggerFactory.getLogger(RealtimeTokenService::class.java)
 	}
 }
 
