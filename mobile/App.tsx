@@ -6,7 +6,6 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from 'react-native';
 import {
@@ -30,6 +29,7 @@ type ConversationMessage = {
   role: 'user' | 'assistant';
   content: string;
 };
+type ThemeMode = 'light' | 'dark';
 type ConnectionStatus =
   | 'idle'
   | 'requesting-permission'
@@ -55,6 +55,47 @@ const connectionStatusText: Record<ConnectionStatus, string> = {
   disconnected: '연결 종료됨',
   error: '오류',
 };
+
+const appThemes = {
+  light: {
+    background: '#f8fafc',
+    surface: '#ffffff',
+    softSurface: '#eef2ff',
+    border: '#e2e8f0',
+    primary: '#2563eb',
+    primaryText: '#ffffff',
+    title: '#111827',
+    text: '#374151',
+    muted: '#64748b',
+    assistantBubble: '#ffffff',
+    assistantText: '#111827',
+    taskBadge: '#dbeafe',
+    taskBadgeText: '#1d4ed8',
+    stopBackground: '#fee2e2',
+    stopText: '#991b1b',
+    summaryBorder: '#bfdbfe',
+    error: '#b91c1c',
+  },
+  dark: {
+    background: '#0f172a',
+    surface: '#1e293b',
+    softSurface: '#111827',
+    border: '#334155',
+    primary: '#60a5fa',
+    primaryText: '#0f172a',
+    title: '#f8fafc',
+    text: '#cbd5e1',
+    muted: '#94a3b8',
+    assistantBubble: '#1e293b',
+    assistantText: '#f8fafc',
+    taskBadge: '#1d4ed8',
+    taskBadgeText: '#dbeafe',
+    stopBackground: '#7f1d1d',
+    stopText: '#fee2e2',
+    summaryBorder: '#2563eb',
+    error: '#fca5a5',
+  },
+} as const;
 
 function dataChannelStatusText(status: string): string {
   switch (status) {
@@ -90,12 +131,24 @@ function peerConnectionStatusText(status: string): string {
   }
 }
 
-function App() {
-  const isDarkMode = useColorScheme() === 'dark';
+function connectionStatusColor(status: ConnectionStatus): string {
+  switch (status) {
+    case 'connected':
+      return '#16a34a';
+    case 'connecting':
+    case 'requesting-permission':
+    case 'requesting-token':
+      return '#ca8a04';
+    case 'error':
+      return '#dc2626';
+    default:
+      return '#94a3b8';
+  }
+}
 
+function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <AppContent />
     </SafeAreaProvider>
   );
@@ -103,6 +156,7 @@ function App() {
 
 function AppContent() {
   const safeAreaInsets = useSafeAreaInsets();
+  const [themeMode, setThemeMode] = useState<ThemeMode>('light');
   const connectionRef = useRef<RealtimeConnection | null>(null);
   const [status, setStatus] = useState<RequestStatus>('idle');
   const [tokenPreview, setTokenPreview] = useState<string | null>(null);
@@ -268,98 +322,193 @@ function AppContent() {
     connectionStatus === 'requesting-token' ||
     connectionStatus === 'connecting';
   const isConnected = connectionStatus === 'connected';
+  const theme = appThemes[themeMode];
 
   return (
     <ScrollView
       contentContainerStyle={[
         styles.scrollContent,
         {
+          backgroundColor: theme.background,
           paddingTop: safeAreaInsets.top + 24,
           paddingBottom: safeAreaInsets.bottom + 24,
         },
       ]}>
+      <StatusBar
+        barStyle={themeMode === 'dark' ? 'light-content' : 'dark-content'}
+      />
       <View style={styles.container}>
-        <Text style={styles.title}>루코</Text>
-        <Text style={styles.subtitle}>말로 정리하는 루틴 코치</Text>
-        <Text style={styles.guide}>
-          대화 시작을 누르고 루코에게 할 일을 말해보세요.
-        </Text>
-
-        <View style={styles.statusCard}>
-          <Text style={styles.cardTitle}>대화 상태</Text>
-          <Text style={[styles.connectionStatus, styles[connectionStatus]]}>
-            {connectionStatusText[connectionStatus]}
-          </Text>
-          <Text style={styles.detail}>
-            연결: {peerConnectionStatusText(peerConnectionState)}
-          </Text>
-          <Text style={styles.detail}>
-            데이터 채널: {dataChannelStatusText(dataChannelState)}
-          </Text>
-          <Text style={styles.detail}>
-            음성 응답: {hasRemoteAudio ? '수신 중' : '대기 중'}
-          </Text>
-          {errorMessage ? (
-            <Text style={styles.errorMessage}>{errorMessage}</Text>
-          ) : null}
+        <View style={styles.header}>
+          <View style={styles.headerTextGroup}>
+            <Text style={[styles.title, {color: theme.title}]}>루코</Text>
+            <Text style={[styles.subtitle, {color: theme.muted}]}>
+              말로 정리하는 루틴 코치
+            </Text>
+            <View
+              style={[
+                styles.statusPill,
+                {backgroundColor: theme.surface, borderColor: theme.border},
+              ]}>
+              <View
+                style={[
+                  styles.statusDot,
+                  {backgroundColor: connectionStatusColor(connectionStatus)},
+                ]}
+              />
+              <Text style={[styles.statusPillText, {color: theme.muted}]}>
+                {connectionStatusText[connectionStatus]}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={({pressed}) => [
+                styles.themeButton,
+                {backgroundColor: theme.surface, borderColor: theme.border},
+                pressed && styles.pressedButton,
+              ]}
+              onPress={() =>
+                setThemeMode(current => (current === 'light' ? 'dark' : 'light'))
+              }>
+              <Text style={[styles.themeButtonText, {color: theme.text}]}>
+                {themeMode === 'light' ? 'Dark' : 'Light'}
+              </Text>
+            </Pressable>
+            {isConnecting || isConnected ? (
+              <Pressable
+                style={({pressed}) => [
+                  styles.headerStopButton,
+                  {backgroundColor: theme.stopBackground},
+                  pressed && styles.pressedButton,
+                ]}
+              onPress={handleStopConnection}>
+                <Text style={[styles.headerStopButtonText, {color: theme.stopText}]}>
+                  종료
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={({pressed}) => [
+                  styles.headerStartButton,
+                  {backgroundColor: theme.primary},
+                  pressed && styles.pressedButton,
+                ]}
+                onPress={handleStartConnection}>
+                <Text
+                  style={[
+                    styles.headerStartButtonText,
+                    {color: theme.primaryText},
+                  ]}>
+                  시작
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>토큰 요청 상태</Text>
-          <Text style={styles.status}>{requestStatusText[status]}</Text>
-          {tokenPreview ? (
-            <Text style={styles.preview}>토큰 미리보기: {tokenPreview}</Text>
-          ) : null}
-          <Pressable
-            style={({pressed}) => [
-              styles.secondaryButton,
-              status === 'loading' && styles.disabledButton,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={handleRequestToken}
-            disabled={status === 'loading'}>
-            <Text style={styles.secondaryButtonText}>
-              {status === 'loading' ? '토큰 요청 중' : '토큰 요청'}
-            </Text>
-          </Pressable>
-        </View>
+        {errorMessage ? (
+          <Text style={[styles.errorMessage, {color: theme.error}]}>
+            {errorMessage}
+          </Text>
+        ) : null}
 
-        <View style={styles.buttonRow}>
-          <Pressable
-            style={({pressed}) => [
-              styles.primaryButton,
-              (isConnecting || isConnected) && styles.disabledButton,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={handleStartConnection}
-            disabled={isConnecting || isConnected}>
-            <Text style={styles.primaryButtonText}>
-              {isConnecting ? '대화 준비 중' : '대화 시작'}
-            </Text>
-          </Pressable>
-          <Pressable
-            style={({pressed}) => [
-              styles.stopButton,
-              !isConnecting && !isConnected && styles.disabledButton,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={handleStopConnection}
-            disabled={!isConnecting && !isConnected}>
-            <Text style={styles.stopButtonText}>대화 종료</Text>
-          </Pressable>
+        <View
+          style={[
+            styles.chatSection,
+            {backgroundColor: theme.softSurface, borderColor: theme.border},
+          ]}>
+          {messages.length === 0 ? (
+            <View style={styles.emptyChat}>
+              <Text style={[styles.emptyChatTitle, {color: theme.title}]}>
+                대화를 시작해보세요
+              </Text>
+              <Text style={[styles.emptyChatText, {color: theme.muted}]}>
+                할 일이나 루틴을 말하면 루코가 짧게 정리해줍니다.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.chatList}>
+              {messages.map((message, index) => {
+                const isUser = message.role === 'user';
+                return (
+                  <View
+                    key={`${message.role}-${index}`}
+                    style={[
+                      styles.bubbleRow,
+                      isUser ? styles.userBubbleRow : styles.assistantBubbleRow,
+                    ]}>
+                    {!isUser ? (
+                      <Text style={[styles.avatarLabel, {color: theme.muted}]}>
+                        루코
+                      </Text>
+                    ) : null}
+                    <View
+                      style={[
+                        styles.chatBubble,
+                        isUser
+                          ? [
+                              styles.userBubble,
+                              {backgroundColor: theme.primary},
+                            ]
+                          : [
+                              styles.assistantBubble,
+                              {
+                                backgroundColor: theme.assistantBubble,
+                                borderColor: theme.border,
+                              },
+                            ],
+                      ]}>
+                      <Text
+                        style={[
+                          styles.chatBubbleText,
+                          isUser
+                            ? [
+                                styles.userBubbleText,
+                                {color: theme.primaryText},
+                              ]
+                            : [
+                                styles.assistantBubbleText,
+                                {color: theme.assistantText},
+                              ],
+                        ]}>
+                        {message.content}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         {sessionSummary ? (
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>{sessionSummary.title}</Text>
-            <Text style={styles.summaryText}>{sessionSummary.summary}</Text>
-            <Text style={styles.summaryTaskTitle}>저장된 할 일</Text>
+          <View
+            style={[
+              styles.summaryCard,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.summaryBorder,
+              },
+            ]}>
+            <Text style={[styles.summaryTitle, {color: theme.title}]}>
+              {sessionSummary.title}
+            </Text>
+            <Text style={[styles.summaryText, {color: theme.text}]}>
+              {sessionSummary.summary}
+            </Text>
+            <Text style={[styles.summaryTaskTitle, {color: theme.muted}]}>
+              저장된 할 일
+            </Text>
             {sessionSummary.tasks.length === 0 ? (
-              <Text style={styles.emptyText}>저장된 할 일이 없습니다.</Text>
+              <Text style={[styles.emptyText, {color: theme.muted}]}>
+                저장된 할 일이 없습니다.
+              </Text>
             ) : (
               <View style={styles.summaryTaskList}>
                 {sessionSummary.tasks.map((task, index) => (
-                  <Text key={`${task}-${index}`} style={styles.summaryTask}>
+                  <Text
+                    key={`${task}-${index}`}
+                    style={[styles.summaryTask, {color: theme.text}]}>
                     {index + 1}. {task}
                   </Text>
                 ))}
@@ -369,35 +518,33 @@ function AppContent() {
         ) : null}
 
         <View style={styles.section}>
-          <Text style={styles.label}>저장된 할 일</Text>
+          <Text style={[styles.label, {color: theme.text}]}>저장된 할 일</Text>
           {tasks.length === 0 ? (
-            <Text style={styles.emptyText}>아직 저장된 할 일이 없습니다.</Text>
+            <Text style={[styles.emptyText, {color: theme.muted}]}>
+              아직 저장된 할 일이 없습니다.
+            </Text>
           ) : (
             <View style={styles.taskList}>
               {tasks.map((task, index) => (
-                <View key={`${task}-${index}`} style={styles.taskCard}>
-                  <Text style={styles.taskIndex}>{index + 1}</Text>
-                  <Text style={styles.taskText}>{task}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>대화 로그</Text>
-          {messages.length === 0 ? (
-            <Text style={styles.emptyText}>
-              아직 저장된 대화 로그가 없습니다.
-            </Text>
-          ) : (
-            <View style={styles.messageList}>
-              {messages.map((message, index) => (
-                <View key={`${message.role}-${index}`} style={styles.messageRow}>
-                  <Text style={styles.messageRole}>
-                    {message.role === 'user' ? '사용자' : '루코'}
+                <View
+                  key={`${task}-${index}`}
+                  style={[
+                    styles.taskCard,
+                    {backgroundColor: theme.surface, borderColor: theme.border},
+                  ]}>
+                  <Text
+                    style={[
+                      styles.taskIndex,
+                      {
+                        backgroundColor: theme.taskBadge,
+                        color: theme.taskBadgeText,
+                      },
+                    ]}>
+                    {index + 1}
                   </Text>
-                  <Text style={styles.messageText}>{message.content}</Text>
+                  <Text style={[styles.taskText, {color: theme.title}]}>
+                    {task}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -470,20 +617,94 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    paddingHorizontal: 24,
-    justifyContent: 'center',
+    paddingHorizontal: 18,
+    justifyContent: 'flex-start',
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 18,
+  },
+  headerTextGroup: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  headerActions: {
+    alignItems: 'flex-end',
+    gap: 8,
   },
   title: {
     color: '#111827',
-    fontSize: 36,
+    fontSize: 30,
     fontWeight: '800',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   subtitle: {
     color: '#475569',
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 14,
+    marginBottom: 10,
+  },
+  statusPill: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  statusDot: {
+    borderRadius: 4,
+    height: 8,
+    marginRight: 6,
+    width: 8,
+  },
+  statusPillText: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  headerStartButton: {
+    alignItems: 'center',
+    backgroundColor: '#2563eb',
+    borderRadius: 999,
+    minWidth: 72,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  headerStartButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  headerStopButton: {
+    alignItems: 'center',
+    backgroundColor: '#fee2e2',
+    borderRadius: 999,
+    minWidth: 72,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  headerStopButtonText: {
+    color: '#991b1b',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  themeButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    minWidth: 72,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  themeButtonText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   guide: {
     color: '#64748b',
@@ -528,6 +749,78 @@ const styles = StyleSheet.create({
   },
   section: {
     marginTop: 16,
+  },
+  chatSection: {
+    backgroundColor: '#eef2ff',
+    borderColor: '#dbeafe',
+    borderRadius: 8,
+    borderWidth: 1,
+    minHeight: 260,
+    padding: 14,
+  },
+  emptyChat: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 230,
+    paddingHorizontal: 16,
+  },
+  emptyChatTitle: {
+    color: '#111827',
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  emptyChatText: {
+    color: '#64748b',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  chatList: {
+    gap: 12,
+  },
+  bubbleRow: {
+    maxWidth: '100%',
+  },
+  userBubbleRow: {
+    alignItems: 'flex-end',
+  },
+  assistantBubbleRow: {
+    alignItems: 'flex-start',
+  },
+  avatarLabel: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 4,
+    marginLeft: 2,
+  },
+  chatBubble: {
+    borderRadius: 8,
+    maxWidth: '82%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  userBubble: {
+    backgroundColor: '#2563eb',
+    borderTopRightRadius: 2,
+  },
+  assistantBubble: {
+    backgroundColor: '#ffffff',
+    borderColor: '#e2e8f0',
+    borderTopLeftRadius: 2,
+    borderWidth: 1,
+  },
+  chatBubbleText: {
+    fontSize: 15,
+    lineHeight: 21,
+  },
+  userBubbleText: {
+    color: '#ffffff',
+  },
+  assistantBubbleText: {
+    color: '#111827',
   },
   detail: {
     color: '#374151',
